@@ -64,11 +64,20 @@ confirm() { read -rp "$1 [y/N]: " r; [[ $r =~ ^[Yy]$ ]]; }
 lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DISK"
 confirm "Target disk is $DISK. ALL DATA WILL BE ERASED. Continue?" || exit 1
 
+### ── UNMOUNT ANY EXISTING MOUNTS ON TARGET DISK ──────────────────────────
+log "Unmounting any active mounts on /mnt and $DISK..."
+mountpoint -q /mnt && umount -R /mnt || true
+for part in "${DISK}"*; do
+    [[ "$part" == "$DISK" ]] && continue
+    findmnt -rn -S "$part" -o TARGET | while read -r mp; do
+        [[ -n "$mp" ]] && umount -R "$mp" 2>/dev/null || true
+    done
+done
+
 ### ── MIRRORS & MULTILIB FOR PACSTRAP ─────────────────────────────────────
 log "Updating mirrors for Russia..."
 reflector --country Russia --age 24 --protocol https --sort rate --save /etc/pacman.d/mirrorlist || true
 
-# Enable [multilib] in live pacman.conf so pacstrap can install steam/32-bit libs
 if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
     cat >>/etc/pacman.conf <<'MULTILIB_LIVE'
 
@@ -103,7 +112,6 @@ mkfs.fat -F32 -n "EFI" "$EFI_PART"
 mkfs.ext4 -F -L "ROOT" "$ROOT_PART"
 
 log "Mounting partitions..."
-mountpoint -q /mnt && umount -R /mnt
 mount "$ROOT_PART" /mnt
 mkdir -p /mnt/boot
 mount "$EFI_PART" /mnt/boot
